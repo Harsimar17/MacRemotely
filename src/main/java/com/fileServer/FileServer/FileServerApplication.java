@@ -75,35 +75,49 @@ public class FileServerApplication
     private static void listFiles(Context ctx)
     {
         System.out.println("============Listing files========= from IP: " + ctx.ip());
+        
         String relativePath = ctx.queryParam("path");
+        
         if (relativePath == null) relativePath = "";
 
-        File dir = resolveSafe(relativePath);
+        File dir = resolveSafe(relativePath, null);
+        
         if (dir == null || !dir.isDirectory())
         {
             ctx.status(400).result("Invalid path");
+            
             return;
         }
 
         File[] files = dir.listFiles();
+        
         if (files == null) files = new File[0];
 
         List<Map<String, Object>> result = new ArrayList<>();
+        
         for (File f : files) 
         {
             Map<String, Object> entry = new LinkedHashMap<>();
+            
             entry.put("name", f.getName());
+            
             entry.put("isDir", f.isDirectory());
+            
             entry.put("size", f.isFile() ? f.length() : 0);
+            
             entry.put("path", relativePath.isEmpty() ? f.getName() : relativePath + "/" + f.getName());
+            
             result.add(entry);
         }
 
         result.sort((a, b) -> 
         {
             boolean aDir = (boolean) a.get("isDir");
+            
             boolean bDir = (boolean) b.get("isDir");
+            
             if (aDir != bDir) return aDir ? -1 : 1;
+            
             return ((String) a.get("name")).compareToIgnoreCase((String) b.get("name"));
         });
 
@@ -122,17 +136,24 @@ public class FileServerApplication
     private static void downloadFile(Context ctx) throws IOException 
     {
     	System.out.println("============Downloading files=========");
+    	
         String relativePath = ctx.queryParam("path");
-        File file = resolveSafe(relativePath);
+        
+        File file = resolveSafe(relativePath, null);
+        
         if (file == null || !file.isFile()) 
         {
             ctx.status(404).result("File not found");
+            
             return;
         }
         
         ctx.header("Content-Disposition", "attachment; filename=\"" + file.getName() + "\"");
+        
         ctx.header("Content-Length", String.valueOf(file.length()));
+        
         ctx.contentType("application/octet-stream");
+        
         ctx.result(new FileInputStream(file));
     }
 
@@ -149,27 +170,40 @@ public class FileServerApplication
     private static void uploadFile(Context ctx) throws IOException 
     {
     	System.out.println("============Uploading files=========");
+    	
         String relativePath = ctx.queryParam("path");
+        
         if (relativePath == null) relativePath = "";
 
-        File dir = resolveSafe(relativePath);
-        
-        if (dir == null || !dir.isDirectory()) 
+        File dir = resolveSafe(relativePath, "Users/harsimarpreetsingh/Desktop");
+
+        if (dir == null || !dir.isDirectory())
         {
             ctx.status(400).result("Invalid target directory");
+        
+            return;
+        }
+
+        if (!dir.canWrite())
+        {
+            ctx.status(403).result("Cannot upload here — directory is read-only. Navigate to a writable folder first.");
+            
             return;
         }
 
         var uploaded = ctx.uploadedFiles("file");
+        
         if (uploaded.isEmpty()) 
         {
             ctx.status(400).result("No file provided");
+        
             return;
         }
 
         for (var upload : uploaded)
         {
             File dest = new File(dir, upload.filename());
+            
             try (InputStream in = upload.content(); OutputStream out = new FileOutputStream(dest)) 
             {
                 in.transferTo(out);
@@ -189,21 +223,25 @@ public class FileServerApplication
     private static void deleteFile(Context ctx) 
     {
         String relativePath = ctx.queryParam("path");
-        File file = resolveSafe(relativePath);
+        
+        File file = resolveSafe(relativePath, null);
         
         if (file == null || !file.exists()) 
         {
             ctx.status(404).result("Not found");
+            
             return;
         }
         
         if (file.isDirectory()) 
         {
             ctx.status(400).result("Cannot delete directories");
+            
             return;
         }
         
         file.delete();
+        
         ctx.result("Deleted");
     }
 
@@ -214,22 +252,40 @@ public class FileServerApplication
      * @param relativePath the path to resolve, relative to ROOT_DIR
      * @return the resolved {@link File}, or {@code null} if the path is invalid or outside ROOT_DIR
      */
-    private static File resolveSafe(String relativePath) 
+    private static File resolveSafe
+    (
+		String relativePath, 
+		String appendedIfNeed
+	) 
     {
+    	File target = null;
+    	
         try 
         {
-            File root = new File(ROOT_DIR).getCanonicalFile();
-            File target = relativePath == null || relativePath.isEmpty()
-                    ? root
-                    : new File(root, relativePath).getCanonicalFile();
-            
-            if (!target.getPath().startsWith(root.getPath())) return null;
-            return target;
+        	String fullPath = ROOT_DIR;
+        	
+        	if(appendedIfNeed != null)
+        	{
+        		fullPath = ROOT_DIR + appendedIfNeed;
+        		
+        		target = new File(fullPath).getCanonicalFile();
+        	}
+        	else 
+        	{
+        		File root = new File(fullPath).getCanonicalFile();
+            	
+                target = relativePath == null || relativePath.isEmpty()
+                        ? root
+                        : new File(root, relativePath).getCanonicalFile();
+        		
+        	}
         } 
         catch (IOException e) 
         {
-            return null;
+			System.out.print("Exception while resolving the path in resolveSafe, Exception: " + e);
         }
+        
+        return target;
     }
 
     /**
@@ -241,23 +297,33 @@ public class FileServerApplication
     private static void printLocalIPs() throws Exception 
     {
         System.out.println("\n=== File Server Running ===");
+        
         System.out.println("Serving: " + ROOT_DIR);
+        
         System.out.println("Open in browser:");
+        
         System.out.println("  Local  -> http://localhost:8080");
+        
         Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
         
         while (interfaces.hasMoreElements()) 
         {
             NetworkInterface ni = interfaces.nextElement();
+           
             if (!ni.isUp() || ni.isLoopback()) continue;
+            
             Enumeration<InetAddress> addresses = ni.getInetAddresses();
+            
             while (addresses.hasMoreElements())
             {
                 InetAddress addr = addresses.nextElement();
+               
                 if (addr.getHostAddress().contains(":")) continue;
+                
                 System.out.println("  Network-> http://" + addr.getHostAddress() + ":8080");
             }
         }
+        
         System.out.println("===========================\n");
     }
 }
