@@ -66,6 +66,27 @@
     white-space: nowrap;
   }
   #run-btn:active { background: #1177bb; }
+
+  #mic-btn {
+    background: #3c3c3c;
+    color: #d4d4d4;
+    border: none;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 16px;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.2s;
+  }
+  #mic-btn.listening {
+    background: #e53e3e;
+    animation: pulse 1s infinite;
+  }
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(229,62,62,0.6); }
+    70%  { box-shadow: 0 0 0 8px rgba(229,62,62,0); }
+    100% { box-shadow: 0 0 0 0 rgba(229,62,62,0); }
+  }
 </style>
 </head>
 <body>
@@ -79,6 +100,7 @@
 <div id="input-bar">
   <span id="prompt-label">~$</span>
   <input id="cmd-input" type="text" placeholder="type a command..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+  <button id="mic-btn" onclick="toggleVoice()" title="Voice command">&#127908;</button>
   <button id="run-btn" onclick="runCommand()">Run</button>
 </div>
 
@@ -273,6 +295,52 @@
     input2.value = '';
     if (res.ok) print('<span class="info">Upload complete</span>');
     else print('<span class="err">Upload failed</span>');
+  }
+
+  // Voice recognition
+  let recognition = null;
+  let isListening = false;
+
+  function toggleVoice() {
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+      print('<span class="err">Voice recognition not supported in this browser. Use Chrome.</span>');
+      return;
+    }
+
+    if (isListening) {
+      recognition.stop();
+      return;
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+      isListening = true;
+      document.getElementById('mic-btn').classList.add('listening');
+      print('<span class="info">&#127908; Listening... speak your command</span>');
+    };
+
+    recognition.onresult = (event) => {
+      const spoken = event.results[0][0].transcript.trim();
+      print(`<span class="info">&#127908; Heard: "${escHtml(spoken)}"</span>`);
+      input.value = spoken;
+      runCommand();
+    };
+
+    recognition.onerror = (event) => {
+      print(`<span class="err">Voice error: ${event.error}</span>`);
+    };
+
+    recognition.onend = () => {
+      isListening = false;
+      document.getElementById('mic-btn').classList.remove('listening');
+    };
+
+    recognition.start();
   }
 
   // auto ls on load

@@ -74,6 +74,7 @@ public class FileServerApplication
      */
     private static void listFiles(Context ctx)
     {
+        System.out.println("============Listing files========= from IP: " + ctx.ip());
         String relativePath = ctx.queryParam("path");
         if (relativePath == null) relativePath = "";
 
@@ -120,6 +121,7 @@ public class FileServerApplication
      */
     private static void downloadFile(Context ctx) throws IOException 
     {
+    	System.out.println("============Downloading files=========");
         String relativePath = ctx.queryParam("path");
         File file = resolveSafe(relativePath);
         if (file == null || !file.isFile()) 
@@ -146,6 +148,7 @@ public class FileServerApplication
      */
     private static void uploadFile(Context ctx) throws IOException 
     {
+    	System.out.println("============Uploading files=========");
         String relativePath = ctx.queryParam("path");
         if (relativePath == null) relativePath = "";
 
