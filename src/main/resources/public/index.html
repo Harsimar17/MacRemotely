@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Terminal</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 14px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #terminal {
+    flex: 1;
+    padding: 12px;
+    overflow-y: auto;
+    padding-bottom: 60px;
+  }
+
+  .line { margin-bottom: 4px; word-break: break-all; line-height: 1.5; }
+  .prompt-line { color: #569cd6; }
+  .prompt-line span { color: #4ec9b0; }
+  .dir  { color: #569cd6; }
+  .file { color: #d4d4d4; }
+  .size { color: #608b4e; font-size: 12px; margin-left: 8px; }
+  .err  { color: #f44747; }
+  .info { color: #608b4e; }
+  .cmd-echo { color: #9cdcfe; }
+
+  /* Input bar pinned to bottom */
+  #input-bar {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: #252526;
+    border-top: 1px solid #3c3c3c;
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    gap: 8px;
+  }
+  #prompt-label { color: #4ec9b0; white-space: nowrap; font-size: 13px; }
+  #cmd-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #d4d4d4;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 14px;
+    caret-color: #d4d4d4;
+  }
+  #run-btn {
+    background: #0e639c;
+    color: white;
+    border: none;
+    padding: 6px 14px;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  #run-btn:active { background: #1177bb; }
+</style>
+</head>
+<body>
+
+<div id="terminal">
+  <div class="line info">Harsimarpreet's Mac File Server Terminal</div>
+  <div class="line info">Commands: ls, cd &lt;folder&gt;, cd .., pwd, download &lt;file&gt;, upload, clear, help</div>
+  <div class="line">&nbsp;</div>
+</div>
+
+<div id="input-bar">
+  <span id="prompt-label">~$</span>
+  <input id="cmd-input" type="text" placeholder="type a command..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+  <button id="run-btn" onclick="runCommand()">Run</button>
+</div>
+
+<!-- hidden upload input -->
+<input type="file" id="file-upload" multiple style="display:none" onchange="doUpload()">
+
+<script>
+  let cwd = '';
+
+  const term = document.getElementById('terminal');
+  const input = document.getElementById('cmd-input');
+  const promptLabel = document.getElementById('prompt-label');
+
+  let tabMatches = [];
+  let tabIndex = 0;
+  let tabPrefix = '';
+  let tabCmdPrefix = '';
+
+  input.addEventListener('keydown', async e => {
+    if (e.key === 'Enter') { tabMatches = []; runCommand(); return; }
+
+    if (e.key === 'Tab') {
+      e.preventDefault();
+
+      const val = input.value;
+      const parts = val.split(/\s+/);
+
+      // only autocomplete after a command (cd, download, cat, etc.)
+      if (parts.length < 2) return;
+
+      const cmdPart = parts[0];
+      const argSoFar = parts.slice(1).join(' ');
+
+      // split arg into directory part and prefix being typed
+      const lastSlash = argSoFar.lastIndexOf('/');
+      const dirPart = lastSlash >= 0 ? argSoFar.slice(0, lastSlash) : '';
+      const prefix = lastSlash >= 0 ? argSoFar.slice(lastSlash + 1) : argSoFar;
+
+      // fetch new matches only if prefix changed
+      if (prefix !== tabPrefix || tabMatches.length === 0) {
+        tabPrefix = prefix;
+        tabCmdPrefix = cmdPart + ' ' + (dirPart ? dirPart + '/' : '');
+        tabIndex = 0;
+
+        const fetchPath = cwd === ''
+          ? dirPart
+          : (dirPart ? cwd + '/' + dirPart : cwd);
+
+        const res = await fetch('/api/files?path=' + encodeURIComponent(fetchPath));
+        if (!res.ok) return;
+        const files = await res.json();
+
+        tabMatches = files
+          .map(f => f.name + (f.isDir ? '/' : ''))
+          .filter(name => name.toLowerCase().startsWith(prefix.toLowerCase()));
+      }
+
+      if (tabMatches.length === 0) return;
+
+      // cycle through matches on repeated Tab
+      input.value = tabCmdPrefix + tabMatches[tabIndex];
+      tabIndex = (tabIndex + 1) % tabMatches.length;
+
+      // show all matches if more than one
+      if (tabMatches.length > 1 && tabIndex === 1) {
+        print(`<span class="info">${tabMatches.map(escHtml).join('  ')}</span>`);
+      }
+      return;
+    }
+
+    // any other key resets tab state
+    tabMatches = [];
+    tabIndex = 0;
+    tabPrefix = '';
+  });
+
+  function print(html) {
+    const d = document.createElement('div');
+    d.className = 'line';
+    d.innerHTML = html;
+    term.appendChild(d);
+    term.scrollTop = term.scrollHeight;
+  }
+
+  function printPrompt(cmd) {
+    print(`<span class="prompt-line">mac:<span>${cwdDisplay()}</span> $</span> <span class="cmd-echo">${escHtml(cmd)}</span>`);
+  }
+
+  function cwdDisplay() { return cwd === '' ? '/' : '/' + cwd; }
+
+  function updatePrompt() {
+    promptLabel.textContent = cwdDisplay() + ' $';
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function formatSize(bytes) {
+    if (bytes < 1024) return bytes + 'B';
+    if (bytes < 1024 * 1024) return (bytes/1024).toFixed(1) + 'KB';
+    if (bytes < 1024*1024*1024) return (bytes/1024/1024).toFixed(1) + 'MB';
+    return (bytes/1024/1024/1024).toFixed(2) + 'GB';
+  }
+
+  async function runCommand() {
+    const raw = input.value.trim();
+    if (!raw) return;
+    input.value = '';
+    printPrompt(raw);
+
+    const parts = raw.split(/\s+/);
+    const cmd = parts[0].toLowerCase();
+    const arg = parts.slice(1).join(' ');
+
+    if (cmd === 'clear') { term.innerHTML = ''; return; }
+    if (cmd === 'pwd') { print(cwdDisplay()); return; }
+    if (cmd === 'help') {
+      print('<span class="info">ls</span>              — list files and folders');
+      print('<span class="info">cd &lt;folder&gt;</span>    — navigate into folder');
+      print('<span class="info">cd ..</span>           — go up one level');
+      print('<span class="info">pwd</span>             — show current path');
+      print('<span class="info">download &lt;file&gt;</span> — download a file');
+      print('<span class="info">upload</span>          — upload file to current folder');
+      print('<span class="info">clear</span>           — clear terminal');
+      return;
+    }
+
+    if (cmd === 'ls') { await cmdLs(); return; }
+    if (cmd === 'cd') { await cmdCd(arg); return; }
+    if (cmd === 'download') { cmdDownload(arg); return; }
+    if (cmd === 'upload') { document.getElementById('file-upload').click(); return; }
+
+    print(`<span class="err">command not found: ${escHtml(cmd)}. Type 'help' for commands.</span>`);
+  }
+
+  async function cmdLs() {
+    const res = await fetch('/api/files?path=' + encodeURIComponent(cwd));
+    if (!res.ok) { print('<span class="err">Error listing files</span>'); return; }
+    const files = await res.json();
+    if (files.length === 0) { print('<span class="info">(empty)</span>'); return; }
+    for (const f of files) {
+      if (f.isDir) {
+        print(`<span class="dir">&#128193; ${escHtml(f.name)}/</span>`);
+      } else {
+        print(`<span class="file">&#128196; ${escHtml(f.name)}</span><span class="size">${formatSize(f.size)}</span>`);
+      }
+    }
+  }
+
+  async function cmdCd(arg) {
+    if (!arg) { print('<span class="err">Usage: cd &lt;folder&gt;</span>'); return; }
+
+    if (arg === '..') {
+      if (cwd === '') { print('<span class="info">Already at root</span>'); return; }
+      const parts = cwd.split('/');
+      parts.pop();
+      cwd = parts.join('/');
+      updatePrompt();
+      print(`<span class="info">→ ${cwdDisplay()}</span>`);
+      return;
+    }
+
+    const newPath = cwd === '' ? arg : cwd + '/' + arg;
+    const res = await fetch('/api/files?path=' + encodeURIComponent(newPath));
+    if (!res.ok) { print(`<span class="err">No such directory: ${escHtml(arg)}</span>`); return; }
+    const files = await res.json();
+    if (!Array.isArray(files)) { print(`<span class="err">Not a directory: ${escHtml(arg)}</span>`); return; }
+    cwd = newPath;
+    updatePrompt();
+    print(`<span class="info">→ ${cwdDisplay()}</span>`);
+  }
+
+  function cmdDownload(arg) {
+    if (!arg) { print('<span class="err">Usage: download &lt;filename&gt;</span>'); return; }
+    const filePath = cwd === '' ? arg : cwd + '/' + arg;
+    const a = document.createElement('a');
+    a.href = '/api/download?path=' + encodeURIComponent(filePath);
+    a.download = arg;
+    a.click();
+    print(`<span class="info">Downloading ${escHtml(arg)}...</span>`);
+  }
+
+  async function doUpload() {
+    const input2 = document.getElementById('file-upload');
+    const files = input2.files;
+    if (!files.length) return;
+    print(`<span class="info">Uploading ${files.length} file(s)...</span>`);
+    const form = new FormData();
+    for (const f of files) form.append('file', f);
+    const res = await fetch('/api/upload?path=' + encodeURIComponent(cwd), { method: 'POST', body: form });
+    input2.value = '';
+    if (res.ok) print('<span class="info">Upload complete</span>');
+    else print('<span class="err">Upload failed</span>');
+  }
+
+  // auto ls on load
+  window.onload = () => { updatePrompt(); cmdLs(); };
+</script>
+</body>
+</html>
