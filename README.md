@@ -1,4 +1,4 @@
-# Mac File Server
+# Mac Remotely
 
 A lightweight local file server built in Java that lets you access, browse, upload, and download files from your Mac using any browser on your phone or another device — no app installation required.
 
