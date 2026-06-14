@@ -274,14 +274,26 @@
     print(`<span class="info">→ ${cwdDisplay()}</span>`);
   }
 
-  function cmdDownload(arg) {
+  async function cmdDownload(arg) {
     if (!arg) { print('<span class="err">Usage: download &lt;filename&gt;</span>'); return; }
-    const filePath = cwd === '' ? arg : cwd + '/' + arg;
-    const a = document.createElement('a');
-    a.href = '/api/download?path=' + encodeURIComponent(filePath);
-    a.download = arg;
-    a.click();
-    print(`<span class="info">Downloading ${escHtml(arg)}...</span>`);
+    const filePath = (cwd === '' ? arg : cwd + '/' + arg).replace(/\/+/g, '/');
+    const fileName = filePath.split('/').pop();
+    print(`<span class="info">Downloading ${escHtml(fileName)}...</span>`);
+    try {
+      const res = await fetch('/api/download?path=' + encodeURIComponent(filePath));
+      if (!res.ok) { print('<span class="err">File not found</span>'); return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
+      print(`<span class="info">✓ Done: ${escHtml(fileName)}</span>`);
+    } catch (e) {
+      print(`<span class="err">Download error: ${e.message}</span>`);
+    }
   }
 
   async function doUpload() {

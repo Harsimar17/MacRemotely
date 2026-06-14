@@ -48,7 +48,15 @@ public class FileServerApplication
     {
         Javalin app = Javalin.create(config -> {
             config.staticFiles.add("/public", Location.CLASSPATH);
+            config.http.maxRequestSize = 2L * 1024 * 1024 * 1024;
+            config.jetty.modifyServer(server -> {
+                org.eclipse.jetty.server.ServerConnector connector = new org.eclipse.jetty.server.ServerConnector(server);
+                connector.setPort(8080);
+                server.setConnectors(new org.eclipse.jetty.server.Connector[]{connector});
+            });
         }).start(8080);
+
+        app.before(ctx -> ctx.header("ngrok-skip-browser-warning", "true"));
 
         app.get("/api/files", FileServerApplication::listFiles);
         app.get("/api/download", FileServerApplication::downloadFile);
@@ -135,9 +143,9 @@ public class FileServerApplication
      */
     private static void downloadFile(Context ctx) throws IOException 
     {
-    	System.out.println("============Downloading files=========");
-    	
+        System.out.println("============Downloading files=========");
         String relativePath = ctx.queryParam("path");
+        if (relativePath != null) relativePath = relativePath.replaceAll("/+", "/").replaceAll("^/", "");
         
         File file = resolveSafe(relativePath, null);
         
@@ -148,13 +156,10 @@ public class FileServerApplication
             return;
         }
         
+        byte[] bytes = java.nio.file.Files.readAllBytes(file.toPath());
         ctx.header("Content-Disposition", "attachment; filename=\"" + file.getName() + "\"");
-        
-        ctx.header("Content-Length", String.valueOf(file.length()));
-        
         ctx.contentType("application/octet-stream");
-        
-        ctx.result(new FileInputStream(file));
+        ctx.result(bytes);
     }
 
     /**
